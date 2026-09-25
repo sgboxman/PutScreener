@@ -1,0 +1,12 @@
+/build/
+/dist/
+/nbproject/private/
+*~
+
+# Your own settings and scans. Scans also hold OPRA quotes, which may not be republished.
+/putscreener.properties
+/results/
+/NOTES.md
+
+# IB's jars: IB's license does not allow redistributing them (see lib/README.txt)
+/lib/*.jar

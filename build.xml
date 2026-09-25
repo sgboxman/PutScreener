@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="PutScreener" default="default" basedir=".">
+    <description>Builds, tests, and runs the project PutScreener.</description>
+    <import file="nbproject/build-impl.xml"/>
+
+    <!-- After the jar: copy the launch scripts next to it, and build a one-file jar with the IB API
+         and protobuf inside. The one-file jar is for your own use only: it contains IB's API code,
+         which IB's license does not allow you to redistribute. -->
+    <target name="-post-jar">
+        <copy todir="${dist.dir}" file="PutScreener.bat"/>
+        <copy todir="${dist.dir}" file="putscreener.sh"/>
+        <chmod file="${dist.dir}/putscreener.sh" perm="755"/>
+
+        <property name="fat.jar.name" value="PutScreener-standalone.jar"/>
+        <jar destfile="${dist.dir}/${fat.jar.name}" filesetmanifest="skip">
+            <zipfileset src="${dist.dir}/PutScreener.jar"/>
+            <zipgroupfileset dir="${dist.dir}/lib" includes="*.jar"/>
+            <manifest>
+                <attribute name="Main-Class" value="putscreener.PutScreener"/>
+            </manifest>
+        </jar>
+        <echo message="Built ${dist.dir}/${fat.jar.name} (personal use only: contains IB's API code)"/>
+    </target>
+</project>
