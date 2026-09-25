@@ -127,7 +127,7 @@ public class PutScreener {
         ScreenerWindow win;
         try {
             loadConfig(findConfig(given).toString());
-            win = new ScreenerWindow(capital, tickers.size(), !inSession(ZonedDateTime.now(NY)), midFill, delayedData);
+            win = new ScreenerWindow(capital, tickers.size(), midFill, delayedData);
         } catch (Exception e) {
             e.printStackTrace();
             javax.swing.JOptionPane.showMessageDialog(null, e.getMessage() != null ? e.getMessage() : e.toString(),
@@ -165,7 +165,7 @@ public class PutScreener {
         return tradingDay(t.toLocalDate()) && !t.toLocalTime().isBefore(OPEN) && t.toLocalTime().isBefore(closeOn(t.toLocalDate()));
     }
 
-    /** The most recent 16:00 close at or before t: what IB's frozen quotes show after hours. */
+    /** The most recent close at or before t: what IB's frozen quotes show after hours. */
     static ZonedDateTime lastClose(ZonedDateTime t) {
         LocalDate d = t.toLocalDate();
         if (!tradingDay(d) || t.toLocalTime().isBefore(closeOn(d))) {
@@ -276,8 +276,8 @@ public class PutScreener {
 
     /**
      * One full screen. The config is re-read every time, so a Re-scan picks up edits. After hours
-     * (the window's box; on the console, outside 09:30-16:00) the quotes are IB's frozen ones
-     * from the last close, so time and the spot are taken at that close too.
+     * (outside the regular session) the quotes are IB's frozen ones from the last close, so time
+     * and the spot are taken at that close too.
      */
     static void scan(String given, ScreenerWindow win) throws Exception {
         warned.clear();
@@ -290,27 +290,25 @@ public class PutScreener {
         LocalDate today = now.toLocalDate();
         LocalDate friday = weekEnd(now);
 
-        boolean afterHours = win != null ? win.afterHours() : !inSession(now);
+        // Outside the session live option quotes are empty, so the scan uses the last close's
+        // (IB's frozen quotes); during it IB sends live quotes. Nothing for the user to choose.
+        boolean afterHours = !inSession(now);
         boolean delayed = win != null ? win.delayed() : delayedData;
         stockDataSeen = false;
         optionDataSeen = false;
+        ZonedDateTime quoteTime = afterHours ? lastClose(now) : now;
         if (win != null) {
-            // Outside the session live quotes are empty: After Hours goes on by itself
-            if (!afterHours && !inSession(now)) { afterHours = true; win.setAfterHours(true); }
             // The capital box sizes Contracts, unless the file's capital was changed since the last scan
             if (capital != lastFileCapital) { lastFileCapital = capital; win.setCapital(capital); }
             else capital = win.capital();
             win.scanStarting(tickers.size(), fillAt);
+            win.setMode(afterHours ? "After hours: using the " + quoteTime.format(DateTimeFormatter.ofPattern("EEE", Locale.US)) + " close"
+                                   : "Live quotes");
         }
         if (createdConfig != null) {
             warn("starter", "No settings file was found, so a starter one was written: " + createdConfig
                     + ". Edit tickers, port and capital there, then Re-scan.");
             createdConfig = null;
-        }
-        if (afterHours && inSession(now)) {
-            // IB serves live quotes during the session whatever the setting, so time them live
-            afterHours = false;
-            warn("ah-in-session", "After Hours is ticked during market hours: IB sends live quotes, so live timing is used.");
         }
         LocalTime t = now.toLocalTime();
         if (tradingDay(today) && !t.isBefore(LocalTime.of(9, 0)) && t.isBefore(OPEN))
@@ -321,7 +319,6 @@ public class PutScreener {
         if (today.getYear() > LAST_HOLIDAY_YEAR)
             warn("holidays", "The NYSE holiday list in PutScreener.java ends in " + LAST_HOLIDAY_YEAR + ": add this year's.");
         mktDataType = delayed ? (afterHours ? 4 : 3) : (afterHours ? 2 : 1);
-        ZonedDateTime quoteTime = afterHours ? lastClose(now) : now;
 
         if (win != null) win.status("Connecting to TWS on port " + port + "...");
         connect();
@@ -391,7 +388,7 @@ public class PutScreener {
             if (win != null) {
                 long merit = rows.stream().filter(r -> r.verdict.equals("MERIT")).count();
                 long atMid = fillRows.stream().filter(r -> r.verdict.equals("MERIT@MID")).count();
-                String asOf = afterHours ? "the " + quoteTime.format(DateTimeFormatter.ofPattern("EEE MMM d", Locale.US)) + " 16:00 close"
+                String asOf = afterHours ? "the " + quoteTime.format(DateTimeFormatter.ofPattern("EEE MMM d HH:mm", Locale.US)) + " close"
                         : now.format(DateTimeFormatter.ofPattern("EEE HH:mm", Locale.US)) + " ET";
                 // Warnings first: the end of a long status line can disappear behind the controls
                 String warnings = warned.isEmpty() ? "" : warned.size() + (warned.size() == 1 ? " WARNING" : " WARNINGS") + " below.  ";
@@ -482,16 +479,11 @@ public class PutScreener {
 
         // A dividend going ex after the quotes' day and by expiry: the stock will drop by it, so
         // the put is really written on spot - dividend. An ex-date after this expiry does not
-        // touch it. Live, an ex-date today is in the price once trading starts, but before the
-        // open the spot may still be the pre-ex close while the puts already price the drop, so
-        // wait for 09:30. After hours spot and puts are both the last close, so today counts.
+        // touch it. Live, an ex-date today is already in the price; after hours spot and puts
+        // are both the last close, so a later ex-date (today, before the open) still counts.
         // IB sends no dividend tick on delayed data (warned once per scan).
         Div div = delayed ? null : nextDividend(s);
         LocalDate quoteDay = quoteTime.toLocalDate();
-        if (!afterHours && div != null && div.exDate.equals(quoteDay) && now.toLocalTime().isBefore(OPEN)) {
-            skipped.add(sym + "  goes ex-dividend today " + div + " - run again after 09:30, or tick After Hours");
-            return;
-        }
         boolean exThisWeek = div != null && div.exDate.isAfter(quoteDay) && !div.exDate.isAfter(exp);
         if (exThisWeek && !includeDividends) { skipped.add(sym + "  ex-dividend " + div); return; }
         double dividend = exThisWeek ? div.amount : 0;

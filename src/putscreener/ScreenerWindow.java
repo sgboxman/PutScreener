@@ -9,10 +9,11 @@ import java.util.Locale;
 
 /**
  * The screen as a table that fills in name by name. Rows are coloured by verdict; the capital
- * box at the top recalculates the Contracts column; After Hours picks frozen close quotes over
- * live ones for the next scan; Re-scan runs the screen again; the mid-fill box switches at once
- * between the two scorings every scan makes (at the mid with the spread filter, or at the
- * assumed fill without it). All public methods are safe to call from the screening thread.
+ * box at the top recalculates the Contracts column; a label says whether the scan used live
+ * quotes or, after hours, the last close's; Re-scan runs the screen again; the mid-fill box
+ * switches at once between the two scorings every scan makes (at the mid with the spread
+ * filter, or at the assumed fill without it). All public methods are safe to call from the
+ * screening thread.
  */
 class ScreenerWindow {
 
@@ -33,24 +34,23 @@ class ScreenerWindow {
     private final List<PutScreener.Row> rows = new ArrayList<>();       // at the mid, spread filter on
     private final List<PutScreener.Row> fillRows = new ArrayList<>();   // at the assumed fill, no spread filter
     private volatile double capital;
-    private volatile boolean afterHours, delayed;
+    private volatile boolean delayed;
     private boolean midFill;          // EDT only
     private double fillAt = 0.5;      // EDT only
     private int warnEnd;              // EDT only: warnings sit above this offset in the notes box
     private volatile Runnable onRescan = () -> { };
     private JFrame frame;
-    private JLabel status;
+    private JLabel status, mode;
     private JProgressBar progress;
     private JTextArea notes;
-    private JCheckBox afterHoursBox, delayedBox;
+    private JCheckBox delayedBox;
     private JCheckBox midBox;
     private JTextField cap;
     private JButton rescan;
     private Model model;
 
-    ScreenerWindow(double capital, int total, boolean afterHours, boolean midFill, boolean delayed) throws Exception {
+    ScreenerWindow(double capital, int total, boolean midFill, boolean delayed) throws Exception {
         this.capital = capital;
-        this.afterHours = afterHours;
         this.midFill = midFill;
         this.delayed = delayed;
         SwingUtilities.invokeAndWait(() -> build(total));
@@ -61,15 +61,10 @@ class ScreenerWindow {
 
     double capital() { return capital; }
 
-    boolean afterHours() { return afterHours; }
-
     boolean delayed() { return delayed; }
 
-    /** Ticked by the scan itself outside market hours. */
-    void setAfterHours(boolean on) {
-        afterHours = on;
-        SwingUtilities.invokeLater(() -> afterHoursBox.setSelected(on));
-    }
+    /** Which quotes the scan uses: live, or after hours the last close's. Set by the scan, not the user. */
+    void setMode(String s) { SwingUtilities.invokeLater(() -> mode.setText(s)); }
 
     /** The settings file's capital, when it changed since the last scan. */
     void setCapital(double c) {
@@ -102,7 +97,6 @@ class ScreenerWindow {
 
     private void setControls(boolean on) {
         rescan.setEnabled(on);
-        afterHoursBox.setEnabled(on);
         delayedBox.setEnabled(on);
     }
 
@@ -158,11 +152,10 @@ class ScreenerWindow {
         cap.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override public void focusLost(java.awt.event.FocusEvent e) { apply.run(); }
         });
-        afterHoursBox = new JCheckBox("After Hours", afterHours);
-        afterHoursBox.setToolTipText("<html>Ticked: IB's frozen quotes from the last 16:00 close, with time and the stock"
-                + " price taken at that close.<br>Unticked: live quotes. Ticked by itself when the window opens outside"
-                + " 09:30-16:00 ET.<br>Between 09:00 and 09:30 IB has no option quotes at all, so neither setting works.</html>");
-        afterHoursBox.addActionListener(e -> afterHours = afterHoursBox.isSelected());
+        mode = new JLabel(" ");
+        mode.setToolTipText("<html>During market hours the scan uses live quotes. Outside them live option quotes are"
+                + " empty, so it uses the last close's quotes, with time and the stock price taken at that close.<br>"
+                + "Between 09:00 and 09:30 ET IB has no option quotes at all.</html>");
         delayedBox = new JCheckBox("Delayed data", delayed);
         delayedBox.setToolTipText("<html>Ticked: IB's free delayed data (~15 minutes old; after hours, the close), for"
                 + " accounts without an options (OPRA) subscription.<br>Price history still needs a US stock"
@@ -184,9 +177,10 @@ class ScreenerWindow {
             model.fireTableDataChanged();
         });
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        right.add(mode);
+        right.add(Box.createHorizontalStrut(8));
         right.add(midBox);
         right.add(delayedBox);
-        right.add(afterHoursBox);
         right.add(rescan);
         right.add(Box.createHorizontalStrut(16));
         right.add(new JLabel("Capital $"));

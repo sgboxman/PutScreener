@@ -48,8 +48,8 @@ under the table.
 
 - **Fill at mid**: price every put at the mid (`fill_at`) and let wide spreads through as MERIT@MID. Switches at once.
 - **Delayed data**: IB's free delayed quotes, for accounts without OPRA.
-- **After Hours**: use the last close's quotes. Ticked automatically when a scan starts outside 09:30–16:00 ET
-  (13:00 on half days).
+- Outside 09:30–16:00 ET (13:00 on half days) live option quotes are empty, so the scan uses the last close's
+  quotes; the label at the top says which.
 - **Re-scan**: re-read the settings and scan again. **Capital**: recalculates Contracts at once (a changed
   `capital` in the settings file takes over at the next Re-scan).
 
