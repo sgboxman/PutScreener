@@ -118,7 +118,15 @@ class ScreenerWindow {
         });
     }
 
-    void status(String s) { SwingUtilities.invokeLater(() -> status.setText(s)); }
+    void status(String s) { status(s, null); }
+
+    /** The status line, and what hovering over it shows (the saved CSV's path at the end of a scan). */
+    void status(String s, String tip) {
+        SwingUtilities.invokeLater(() -> {
+            status.setText(s);
+            status.setToolTipText(tip);
+        });
+    }
 
     void progress(int done) { SwingUtilities.invokeLater(() -> progress.setValue(done)); }
 

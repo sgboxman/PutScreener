@@ -408,13 +408,14 @@ public class PutScreener {
             if (win != null) {
                 long merit = rows.stream().filter(r -> r.verdict.equals("MERIT")).count();
                 long atMid = fillRows.stream().filter(r -> r.verdict.equals("MERIT@MID")).count();
-                String asOf = afterHours ? "the " + quoteTime.format(DateTimeFormatter.ofPattern("EEE MMM d HH:mm", Locale.US)) + " close"
+                String asOf = afterHours ? quoteTime.format(DateTimeFormatter.ofPattern("EEE MMM d HH:mm", Locale.US)) + " close"
                         : now.format(DateTimeFormatter.ofPattern("EEE HH:mm", Locale.US)) + " ET";
-                // Warnings first: the end of a long status line can disappear behind the controls
+                // Short enough to fit beside the controls (Andrew, 09-26): warnings first, no file name
+                // (it is in the tooltip) and no "(delayed)" (the label says so)
                 String warnings = warned.isEmpty() ? "" : warned.size() + (warned.size() == 1 ? " WARNING" : " WARNINGS") + " below.  ";
-                win.status(String.format("%s%s in %d s: %d puts, %d MERIT, %d more MERIT@MID.  Quotes as of %s%s.  Saved %s",
+                win.status(String.format("%s%s in %d s: %d puts, %d MERIT, %d more MERIT@MID.  Quotes: %s",
                         warnings, partial ? "PARTIAL" : "Done", (System.currentTimeMillis() - t0) / 1000, rows.size(), merit, atMid,
-                        asOf, scanDelayed ? " (delayed)" : "", csv.getFileName()));
+                        asOf), "Saved " + csv.toAbsolutePath());
             }
         } finally {
             disconnect();
