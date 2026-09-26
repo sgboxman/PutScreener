@@ -92,7 +92,7 @@ its data leaves out; the `data_through` column and the notes show both.
 | Score | Edge ÷ Tail, × 800 |
 | Spread % | (ask − bid) ÷ mid |
 | Prem % | Premium ÷ strike: the return if it expires worthless |
-| Div $ | Per share, like Bid and Ask: the dividend's share of the premium, in ex-dividend weeks |
+| Div | Per share, like Bid and Ask: the dividend's share of the premium, in ex-dividend weeks |
 | Contracts | Capital ÷ (strike × 100), rounded down |
 
 Verdicts, tested in this order: **NO EDGE** (edge ≤ 0), **IV~RV** (IV/RV below `min_iv_rv`), **WIDE** (spread above

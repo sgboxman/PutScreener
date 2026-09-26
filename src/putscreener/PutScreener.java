@@ -1336,7 +1336,7 @@ public class PutScreener {
                 + " score = edge/tail; prem% = mid / strike");
         System.out.printf("%-6s %3s %-8s %8s %8s %6s %13s %6s %5s %8s %7s %8s %7s %6s %6s %5s %5s  %-8s %s%n",
                 "SYM", "CO", "EXPIRY", "SPOT", "STRIKE", "DELTA", "BID x ASK", "IV", "IV/RV",
-                "EDGE", "EDGE%", "TAIL", "SCORE", "SPRD%", "PREM%", "DIV$", "CTRS", "VERDICT", "AT FILL");
+                "EDGE", "EDGE%", "TAIL", "SCORE", "SPRD%", "PREM%", "DIV", "CTRS", "VERDICT", "AT FILL");
         for (Row r : rows) {
             Row f = atFill.get(r.sym + "|" + r.strike);
             Double co = companyScore(r.sym);
@@ -1347,7 +1347,7 @@ public class PutScreener {
                     r.divPart, contracts(capital, r.strike), r.verdict, f != null ? f.verdict : "-");
         }
         System.out.printf("CTRS = cash-secured contracts for $%,.0f.  * = goes ex-dividend before expiry;"
-                + " DIV$ = the dividend's share of the premium per share.  CO = company score.%n", capital);
+                + " DIV = the dividend's share of the premium per share.  CO = company score.%n", capital);
         System.out.printf("AT FILL = the verdict if filled at bid + %.0f%% of the spread (fill_at %.2f), wide spreads allowed.%n",
                 fillAt * 100, fillAt);
         for (Row r : rows) if (r.dividend > 0) System.out.println("  " + r.sym + " " + r.divNote);

@@ -30,7 +30,7 @@ class ScreenerWindow {
     // Co. Score = the company score from company_scores.csv, blank without one.
     static final double EDGE_FACTOR = 66, SCORE_FACTOR = 800;
     private static final String[] COLS = {"Symbol", "Co. Score", "Expiry", "Spot", "Strike", "Delta", "Bid", "Ask",
-            "IV %", "IV/RV", "Edge@Mid $", "Edge Φ", "Tail $", "Score", "Spread %", "Prem %", "Div $",
+            "IV %", "IV/RV", "Edge@Mid $", "Edge Φ", "Tail $", "Score", "Spread %", "Prem %", "Div",
             "Contracts", "Verdict"};
     private static final String[] FMT = {null, "%.0f", null, "%.2f", "%.2f", "%.2f", "%.2f", "%.2f",
             "%.0f", "%.2f", "%.0f", "%.1f", "%.0f", "%.1f", "%.1f", "%.2f", "%.2f", null, null};
@@ -236,7 +236,7 @@ class ScreenerWindow {
         legend.add(swatch(IV_RV, "IV~RV: implied not far enough above realized"));
         legend.add(swatch(NO_EDGE, "NO EDGE"));
         JPanel explain = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 2));
-        explain.add(new JLabel("(div) = ex-dividend before expiry; Div $ = dividend's share of the premium, per share."
+        explain.add(new JLabel("(div) = ex-dividend before expiry; Div = dividend's share of the premium, per share."
                 + "   Contracts = capital / (strike x 100); grey 0 = can't afford one."
                 + "   Co. Score = company score (0-100) from company_scores.csv."));
         JPanel legends = new JPanel(new GridLayout(2, 1));
