@@ -4,6 +4,7 @@ import javax.swing.*;
 import javax.swing.table.*;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -212,7 +213,11 @@ class ScreenerWindow {
         // Centre: the table
         model = new Model();
         JTable table = new JTable(model);
-        table.setAutoCreateRowSorter(true);
+        // The Verdict column sorts best first, as the scan lists them, not alphabetically (which put
+        // IV~RV at the top); equal verdicts keep the scan's order, best score first
+        TableRowSorter<Model> sorter = new TableRowSorter<>(model);
+        sorter.setComparator(VERDICT, Comparator.comparingInt((Object v) -> verdictRank(v.toString())));
+        table.setRowSorter(sorter);
         table.setRowHeight(22);
         table.setFillsViewportHeight(true);
         Renderer r = new Renderer();
@@ -231,7 +236,7 @@ class ScreenerWindow {
         legend.add(swatch(IV_RV, "IV~RV: implied not far enough above realized"));
         legend.add(swatch(NO_EDGE, "NO EDGE"));
         JPanel explain = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 2));
-        explain.add(new JLabel("(div) = ex-dividend before expiry; Div $ = dividend's share of the premium."
+        explain.add(new JLabel("(div) = ex-dividend before expiry; Div $ = dividend's share of the premium, per contract."
                 + "   Contracts = capital / (strike x 100); grey 0 = can't afford one."
                 + "   Co. Score = company score (0-100) from company_scores.csv."));
         JPanel legends = new JPanel(new GridLayout(2, 1));
@@ -253,6 +258,17 @@ class ScreenerWindow {
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
         split.setDividerLocation(0.82);
+    }
+
+    /** Best first: the order of the legend and of the colours. */
+    static int verdictRank(String v) {
+        return switch (v) {
+            case "MERIT" -> 0;
+            case "MERIT@MID" -> 1;
+            case "WIDE" -> 2;
+            case "IV~RV" -> 3;
+            default -> 4;                                  // NO EDGE
+        };
     }
 
     private static JLabel swatch(Color c, String text) {
