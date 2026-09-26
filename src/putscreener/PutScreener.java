@@ -313,6 +313,7 @@ public class PutScreener {
         scanDelayed = delayedData;
         stockDataSeen = false;
         optionDataSeen = false;
+        noDividendData.clear();
         ZonedDateTime quoteTime = afterHours ? lastClose(now) : now;
         if (win != null) {
             // The capital box sizes Contracts, unless the file's capital was changed since the last scan
@@ -398,6 +399,7 @@ public class PutScreener {
                 }
             }
 
+            warnNoDividendData();
             rows.sort(ORDER);
             fillRows.sort(ORDER);
             Map<String, Row> atFill = new HashMap<>();
@@ -1016,6 +1018,23 @@ public class PutScreener {
      * "past12,next12,nextDate,nextAmount", within ~50 ms. Generic ticks need a streaming request,
      * cancelled as soon as the tick is in. Null when IB sends no dividend.
      */
+    /** This scan's names for which IB's dividend request went unanswered, in scan order. */
+    static final Set<String> noDividendData = Collections.synchronizedSet(new LinkedHashSet<>());
+
+    /**
+     * Names whose ex-dividend week the scan may have missed because IB sent no dividend data: one
+     * warning, naming at most ten of them. Silence is not an error from IB, so nothing else says so.
+     */
+    static void warnNoDividendData() {
+        List<String> names;
+        synchronized (noDividendData) { names = new ArrayList<>(noDividendData); }
+        if (names.isEmpty()) return;
+        String list = String.join(", ", names.subList(0, Math.min(10, names.size())))
+                + (names.size() > 10 ? " and " + (names.size() - 10) + " more" : "");
+        warn("div-missing", "IB sent no dividend data for " + list + ": an ex-dividend week may be missed. Re-scan,"
+                + " or check their ex-dates yourself.");
+    }
+
     static Div nextDividend(Contract s) throws InterruptedException {
         int id = ids.incrementAndGet();
         w.open(id);
@@ -1028,6 +1047,9 @@ public class PutScreener {
         if (v == null && w.errCode(id) != 0)
             warn("div-err", "IB " + w.errCode(id) + " on a dividend request (" + s.symbol() + "): names may go"
                     + " ex-dividend unnoticed this scan. Check ex-dates yourself.");
+        // No answer at all: IB's dividend data is patchy at times (on Saturday evening 09-26 it sent
+        // nothing for BMY or KO in three 5-second tries). Collected and warned about at the end of the scan
+        else if (v == null) noDividendData.add(s.symbol());
         if (v == null) return null;
         String[] f = v.split(",");
         try {
