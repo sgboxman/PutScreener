@@ -23,13 +23,15 @@ class ScreenerWindow {
     static final Color IV_RV = new Color(228, 228, 228);   // grey
     static final Color NO_EDGE = new Color(255, 199, 206); // red
 
-    // Edge % = edge at the mid / cash secured (strike x 100): expected profit per dollar tied up.
+    // Edge Φ = edge at the mid / cash secured (strike x 100), in %, x EDGE_FACTOR; Score = edge / tail x SCORE_FACTOR.
+    // Andrew's scaling (2026-09-26): the raw values were too small to read at a glance. The results CSV keeps them raw.
     // Co. Score = the company score from company_scores.csv, blank without one.
+    static final double EDGE_FACTOR = 66, SCORE_FACTOR = 800;
     private static final String[] COLS = {"Symbol", "Co. Score", "Expiry", "Spot", "Strike", "Delta", "Bid", "Ask",
-            "IV %", "IV/RV", "Edge@Mid $", "Edge %", "Tail $", "Score", "Spread %", "Prem %", "Div $",
+            "IV %", "IV/RV", "Edge@Mid $", "Edge Φ", "Tail $", "Score", "Spread %", "Prem %", "Div $",
             "Contracts", "Verdict"};
     private static final String[] FMT = {null, "%.0f", null, "%.2f", "%.2f", "%.2f", "%.2f", "%.2f",
-            "%.0f", "%.2f", "%.0f", "%.3f", "%.0f", "%.3f", "%.1f", "%.2f", "%.0f", null, null};
+            "%.0f", "%.2f", "%.0f", "%.1f", "%.0f", "%.1f", "%.1f", "%.2f", "%.0f", null, null};
     private static final int SYM = 0, CO = 1, EXPIRY = 2, DIV = 16, CONTRACTS = 17, VERDICT = 18;
 
     private final List<PutScreener.Row> rows = new ArrayList<>();       // at the mid, spread filter on
@@ -273,9 +275,9 @@ class ScreenerWindow {
                 case 8 -> r.iv() * 100;
                 case 9 -> r.ivRv();
                 case 10 -> r.edge() * 100;
-                case 11 -> r.edge() / r.strike() * 100;
+                case 11 -> r.edge() / r.strike() * 100 * EDGE_FACTOR;
                 case 12 -> r.tail() * 100;
-                case 13 -> r.score();
+                case 13 -> r.score() * SCORE_FACTOR;
                 case 14 -> r.spreadPct();
                 case 15 -> r.premPct();
                 case DIV -> r.divPart() * 100;

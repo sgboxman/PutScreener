@@ -84,9 +84,9 @@ its data leaves out; the `data_through` column and the notes show both.
 | IV % | Implied volatility, annualised, from the mid |
 | IV/RV | Move the option prices in ÷ move the stock has actually made, both to expiry |
 | Edge@Mid $ | Per contract: premium at the mid − expected payout if the stock keeps moving as it has |
-| Edge % | Edge ÷ cash secured (strike × 100) |
+| Edge Φ | Edge ÷ cash secured (strike × 100), as a %, × 66 so it reads at a glance |
 | Tail $ | Per contract: loss if the stock gaps down `gap_multiple` implied moves |
-| Score | Edge ÷ Tail |
+| Score | Edge ÷ Tail, × 800 |
 | Spread % | (ask − bid) ÷ mid |
 | Prem % | Premium ÷ strike: the return if it expires worthless |
 | Div $ | The dividend's share of the premium, in ex-dividend weeks |
@@ -104,7 +104,7 @@ Verdicts, tested in this order: **NO EDGE** (edge ≤ 0), **IV~RV** (IV/RV below
 - `earnings_calendar = nasdaq` reads Nasdaq's public web calendar, which is not an official API. Nasdaq's terms
   (nasdaq.com/legal) limit use to personal, non-commercial purposes; decide for yourself whether to turn it on.
 - Dividends come from IB. With delayed data IB sends none, so ex-dividend weeks aren't recognised.
-- Each scan writes a CSV to `results/` next to the settings file.
+- Each scan writes a CSV to `results/` next to the settings file. It keeps edge and score unscaled.
 - The NYSE holiday and half-day lists in `PutScreener.java` run to 2028; the window warns when they need extending.
 
 ## Build
