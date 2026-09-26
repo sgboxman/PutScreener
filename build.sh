@@ -13,6 +13,6 @@ javac --release 17 -encoding UTF-8 -cp "lib/*" -d build/classes src/putscreener/
 printf 'Class-Path: lib/TwsApi.jar lib/protobuf-java-4.29.5.jar\n' > build/manifest.txt
 "$JAR" --create --file dist/PutScreener.jar --manifest build/manifest.txt --main-class putscreener.PutScreener -C build/classes . || exit 1
 cp lib/*.jar dist/lib/
-cp PutScreener.bat putscreener.sh dist/
-chmod +x dist/putscreener.sh
+cp PutScreener.bat putscreener.sh CompanyScore.bat companyscore.sh dist/
+chmod +x dist/putscreener.sh dist/companyscore.sh
 echo "Built dist/PutScreener.jar. Run: sh dist/putscreener.sh"

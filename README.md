@@ -15,7 +15,7 @@ whether its premium looks rich compared with how the stock has actually been mov
 
 ## Set up
 
-1. Put `PutScreener.jar`, `PutScreener.bat` and `putscreener.sh` in one folder (from Releases, or build them, below).
+1. Put `PutScreener.jar` and the `.bat` and `.sh` scripts in one folder (from Releases, or build them, below).
 2. Install IB's TWS API from <https://interactivebrokers.github.io> and copy two files into a `lib` folder next to
    the jar: `TwsApi.jar` (in `source/JavaClient/`) and `protobuf-java-4.29.5.jar` (in `source/JavaClient/jars/`).
 3. In TWS: *File > Global Configuration > API > Settings*, tick **Enable ActiveX and Socket Clients** and note the
@@ -43,6 +43,28 @@ under the table.
 | `mid_fill`, `delayed_data` | Start with these boxes ticked | false |
 | `fill_at` | Price *Fill at mid* assumes: 0 bid, 0.5 mid, 1 ask | 0.5 |
 | `capital` | Cash per position, for the Contracts column | 25000 |
+| `sec_contact` | Your name and email, for company scores (below); sent only to the SEC | (empty) |
+
+## Company scores (optional)
+
+`CompanyScore.bat` (or `sh companyscore.sh`) scores every company in `tickers` from 0 to 100, from its own 10-K and
+10-Q filings (the SEC's free XBRL data, no key) and IB's price. TWS must be running. It takes about a minute and
+writes `company_scores.csv` next to the settings, best first, plus a dated copy in `results/`.
+
+Six measures, each scored 0–100 along straight lines through fixed points, then weighted: P/E (10), free-cash-flow
+yield (20), net debt ÷ EBITDA (15), free-cash-flow growth over three years (20), return on invested capital (20) and
+market cap (5). A measure the filings don't give is left out and the rest reweighted, but a total needs a P/E or an
+FCF yield; the `notes` column says what is missing or approximated. Banks and insurers are shown but not scored: debt
+and cash flow mean something else for them. The thresholds are a starting point, not tested against outcomes.
+
+The weekly routine: run CompanyScore, delete the rows you don't want to screen that week (in Excel is fine; delete
+whole rows), save, then run PutScreener. While `company_scores.csv` exists the screener scans only the names in it
+and shows each one's score in the *Co. Score* column. It warns when the file is more than 8 days old. Delete the
+file to scan all of `tickers` again. Running CompanyScore again overwrites your pruning (the dated copies don't
+change).
+
+The SEC's data can lag a new filing by weeks, and a few companies keep some figures under their own tags, which
+its data leaves out; the `data_through` column and the notes show both.
 
 ## The window
 
@@ -55,6 +77,7 @@ under the table.
 
 | Column | Meaning |
 |---|---|
+| Co. Score | The company score from `company_scores.csv` (blank without one) |
 | IV % | Implied volatility, annualised, from the mid |
 | IV/RV | Move the option prices in ÷ move the stock has actually made, both to expiry |
 | Edge@Mid $ | Per contract: premium at the mid − expected payout if the stock keeps moving as it has |

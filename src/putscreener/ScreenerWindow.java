@@ -23,13 +23,14 @@ class ScreenerWindow {
     static final Color IV_RV = new Color(228, 228, 228);   // grey
     static final Color NO_EDGE = new Color(255, 199, 206); // red
 
-    // Edge % = edge at the mid / cash secured (strike x 100): expected profit per dollar tied up
-    private static final String[] COLS = {"Symbol", "Expiry", "Spot", "Strike", "Delta", "Bid", "Ask",
+    // Edge % = edge at the mid / cash secured (strike x 100): expected profit per dollar tied up.
+    // Co. Score = the company score from company_scores.csv, blank without one.
+    private static final String[] COLS = {"Symbol", "Co. Score", "Expiry", "Spot", "Strike", "Delta", "Bid", "Ask",
             "IV %", "IV/RV", "Edge@Mid $", "Edge %", "Tail $", "Score", "Spread %", "Prem %", "Div $",
             "Contracts", "Verdict"};
-    private static final String[] FMT = {null, null, "%.2f", "%.2f", "%.2f", "%.2f", "%.2f",
+    private static final String[] FMT = {null, "%.0f", null, "%.2f", "%.2f", "%.2f", "%.2f", "%.2f",
             "%.0f", "%.2f", "%.0f", "%.3f", "%.0f", "%.3f", "%.1f", "%.2f", "%.0f", null, null};
-    private static final int SYM = 0, DIV = 15, CONTRACTS = 16, VERDICT = 17;
+    private static final int SYM = 0, CO = 1, EXPIRY = 2, DIV = 16, CONTRACTS = 17, VERDICT = 18;
 
     private final List<PutScreener.Row> rows = new ArrayList<>();       // at the mid, spread filter on
     private final List<PutScreener.Row> fillRows = new ArrayList<>();   // at the assumed fill, no spread filter
@@ -214,7 +215,8 @@ class ScreenerWindow {
         legend.add(swatch(NO_EDGE, "NO EDGE"));
         JPanel explain = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 2));
         explain.add(new JLabel("(div) = ex-dividend before expiry; Div $ = dividend's share of the premium."
-                + "   Contracts = capital / (strike x 100); grey 0 = can't afford one."));
+                + "   Contracts = capital / (strike x 100); grey 0 = can't afford one."
+                + "   Co. Score = company score (0-100) from company_scores.csv."));
         JPanel legends = new JPanel(new GridLayout(2, 1));
         legends.add(legend);
         legends.add(explain);
@@ -251,7 +253,7 @@ class ScreenerWindow {
 
         @Override public Class<?> getColumnClass(int c) {
             return switch (c) {
-                case SYM, 1, VERDICT -> String.class;
+                case SYM, EXPIRY, VERDICT -> String.class;
                 case CONTRACTS -> Integer.class;
                 default -> Double.class;
             };
@@ -261,20 +263,21 @@ class ScreenerWindow {
             PutScreener.Row r = shown().get(i);
             return switch (c) {
                 case SYM -> r.dividend() > 0 ? r.sym() + "  (div)" : r.sym();
-                case 1 -> r.expiry();
-                case 2 -> r.spot();
-                case 3 -> r.strike();
-                case 4 -> r.delta();
-                case 5 -> r.bid();
-                case 6 -> r.ask();
-                case 7 -> r.iv() * 100;
-                case 8 -> r.ivRv();
-                case 9 -> r.edge() * 100;
-                case 10 -> r.edge() / r.strike() * 100;
-                case 11 -> r.tail() * 100;
-                case 12 -> r.score();
-                case 13 -> r.spreadPct();
-                case 14 -> r.premPct();
+                case CO -> PutScreener.companyScore(r.sym());
+                case EXPIRY -> r.expiry();
+                case 3 -> r.spot();
+                case 4 -> r.strike();
+                case 5 -> r.delta();
+                case 6 -> r.bid();
+                case 7 -> r.ask();
+                case 8 -> r.iv() * 100;
+                case 9 -> r.ivRv();
+                case 10 -> r.edge() * 100;
+                case 11 -> r.edge() / r.strike() * 100;
+                case 12 -> r.tail() * 100;
+                case 13 -> r.score();
+                case 14 -> r.spreadPct();
+                case 15 -> r.premPct();
                 case DIV -> r.divPart() * 100;
                 case CONTRACTS -> PutScreener.contracts(capital, r.strike());
                 default -> r.verdict();
@@ -289,7 +292,7 @@ class ScreenerWindow {
             String text = v == null ? "" : (FMT[c] != null && v instanceof Double d) ? String.format(FMT[c], d) : v.toString();
             super.getTableCellRendererComponent(t, text, sel, focus, row, col);
             PutScreener.Row r = shown().get(t.convertRowIndexToModel(row));
-            setHorizontalAlignment(c == SYM || c == 1 || c == VERDICT ? LEFT : RIGHT);
+            setHorizontalAlignment(c == SYM || c == EXPIRY || c == VERDICT ? LEFT : RIGHT);
             boolean none = c == CONTRACTS && v instanceof Integer n && n == 0;
             boolean bold = c == SYM || c == VERDICT || (c == DIV && r.dividend() > 0)
                     || (c == CONTRACTS && !none && r.verdict().startsWith("MERIT"));

@@ -8,9 +8,11 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URI;
 import java.net.http.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.*;
 import java.util.concurrent.*;
@@ -34,11 +36,14 @@ import java.util.regex.*;
  *
  * The lognormal understates fat tails, so treat edge as optimistic.
  * Read-only: nothing here places an order.
+ *
+ * With a company_scores.csv next to the settings (written by CompanyScore, then pruned by hand),
+ * the names in it are scanned instead of the settings' tickers, and each carries its company score.
  */
 public class PutScreener {
 
     /** Shown in the window title, so screenshots can be told apart. */
-    static final String VERSION = "1.3";
+    static final String VERSION = "1.4";
     static final String COPYRIGHT = "© 2026 - Andrew Boxerman and Claude Opus 5.5";
 
     static final ZoneId NY = ZoneId.of("America/New_York");
@@ -228,6 +233,10 @@ public class PutScreener {
 
             # Cash per position, for the Contracts column (cash-secured puts).
             capital = 25000
+
+            # Company scores (CompanyScore.bat, optional; see README). The SEC asks every program that
+            # downloads its data for a contact: your name and email. It is sent only to the SEC.
+            sec_contact =
             """;
 
     /**
@@ -284,6 +293,9 @@ public class PutScreener {
         Path cfg = findConfig(given);
         loadConfig(cfg.toString());
         System.out.println("Config: " + cfg);
+        ScoreList list = readScores(cfg.getParent(), LocalDate.now(NY));
+        if (list != null && list.syms() != null) tickers = list.syms();
+        companyScores = list != null ? list.scores() : Map.of();
         long t0 = System.currentTimeMillis();
 
         ZonedDateTime now = ZonedDateTime.now(NY);
@@ -309,6 +321,13 @@ public class PutScreener {
             warn("starter", "No settings file was found, so a starter one was written: " + createdConfig
                     + ". Edit tickers, port and capital there, then Re-scan.");
             createdConfig = null;
+        }
+        if (list != null) {
+            for (String[] x : list.warnings()) warn(x[0], x[1]);
+            if (list.note() != null) {
+                System.out.println(list.note());
+                if (win != null) win.note(list.note());
+            }
         }
         LocalTime t = now.toLocalTime();
         if (tradingDay(today) && !t.isBefore(LocalTime.of(9, 0)) && t.isBefore(OPEN))
@@ -399,6 +418,128 @@ public class PutScreener {
         } finally {
             disconnect();
         }
+    }
+
+    // ------------------------------------------------------------------ company scores
+
+    /** Company score by symbol (IB form), from company_scores.csv; empty without one. */
+    static volatile Map<String, Double> companyScores = Map.of();
+
+    static Double companyScore(String sym) { return companyScores.get(sym); }
+
+    /** What company_scores.csv gave: the names to scan (null: use the settings' tickers), and what to say. */
+    record ScoreList(List<String> syms, Map<String, Double> scores, List<String[]> warnings, String note) {}
+
+    static final int SCORES_MAX_AGE_DAYS = 8;
+
+    /**
+     * company_scores.csv next to the settings, written by CompanyScore and pruned by hand, often in
+     * Excel: its rows are the names to scan. Only the symbol, score and scored_on columns are read,
+     * and Excel's habits are allowed for: a byte-order mark, semicolons for commas, a decimal comma,
+     * quoted names, a different encoding. Null when there is no such file.
+     */
+    static ScoreList readScores(Path dir, LocalDate today) {
+        Path f = dir.resolve(CompanyScore.SCORES);
+        if (!Files.isRegularFile(f)) return null;
+        List<String[]> warnings = new ArrayList<>();
+        String fallback = ": scanning the tickers in " + CONFIG + " instead.";
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(f, StandardCharsets.ISO_8859_1);   // the columns read are ASCII; this never fails
+        } catch (IOException e) {
+            warnings.add(new String[]{"scores-read", CompanyScore.SCORES + " can't be read (" + e.getClass().getSimpleName()
+                    + ", open in Excel?)" + fallback});
+            return new ScoreList(null, Map.of(), warnings, null);
+        }
+        lines.removeIf(String::isBlank);
+        if (lines.isEmpty()) {
+            warnings.add(new String[]{"scores-empty", CompanyScore.SCORES + " is empty" + fallback});
+            return new ScoreList(null, Map.of(), warnings, null);
+        }
+        String head = lines.get(0).replace("ï»¿", "").replace("﻿", "");
+        char sep = head.chars().filter(ch -> ch == ';').count() > head.chars().filter(ch -> ch == ',').count() ? ';' : ',';
+        List<String> cols = csvFields(head, sep);
+        int symCol = -1, scoreCol = -1, onCol = -1;
+        for (int i = 0; i < cols.size(); i++) {
+            String c = cols.get(i).trim().toLowerCase(Locale.ROOT);
+            if (c.equals("symbol")) symCol = i;
+            else if (c.equals("score")) scoreCol = i;
+            else if (c.equals("scored_on")) onCol = i;
+        }
+        if (symCol < 0) {
+            warnings.add(new String[]{"scores-cols", CompanyScore.SCORES + " has no 'symbol' column" + fallback});
+            return new ScoreList(null, Map.of(), warnings, null);
+        }
+        Set<String> syms = new LinkedHashSet<>();
+        Map<String, Double> scores = new HashMap<>();
+        LocalDate scoredOn = null;
+        for (String line : lines.subList(1, lines.size())) {
+            List<String> v = csvFields(line, sep);
+            String sym = symCol < v.size() ? ibSymbol(v.get(symCol)) : "";
+            if (sym.isEmpty()) continue;
+            syms.add(sym);
+            if (scoreCol >= 0 && scoreCol < v.size()) {
+                try {
+                    scores.put(sym, Double.parseDouble(v.get(scoreCol).trim().replace(',', '.')));
+                } catch (NumberFormatException e) {
+                    // no score (the filings lacked the figures): scanned all the same
+                }
+            }
+            if (scoredOn == null && onCol >= 0 && onCol < v.size()) {
+                String digits = v.get(onCol).replaceAll("\\D", "");
+                try {
+                    if (digits.length() >= 8) scoredOn = LocalDate.parse(digits.substring(0, 8), DateTimeFormatter.BASIC_ISO_DATE);
+                } catch (RuntimeException e) {
+                    // not a date: the file's own date is used below
+                }
+            }
+        }
+        if (syms.isEmpty()) {
+            warnings.add(new String[]{"scores-none", CompanyScore.SCORES + " has no names left" + fallback});
+            return new ScoreList(null, Map.of(), warnings, null);
+        }
+        if (scoredOn == null) {
+            try {
+                scoredOn = LocalDate.ofInstant(Files.getLastModifiedTime(f).toInstant(), NY);
+            } catch (IOException e) {
+                scoredOn = today;
+            }
+        }
+        long age = ChronoUnit.DAYS.between(scoredOn, today);
+        if (age > SCORES_MAX_AGE_DAYS)
+            warnings.add(new String[]{"scores-old", CompanyScore.SCORES + " was scored " + age + " days ago (" + day(scoredOn)
+                    + "). Run CompanyScore for this week's scores, then prune it again."});
+        String note = "Scanning the " + syms.size() + " names in " + CompanyScore.SCORES + " (scored " + day(scoredOn) + ").";
+        return new ScoreList(new ArrayList<>(syms), scores, warnings, note);
+    }
+
+    /** One CSV line's fields: quoted fields may hold the separator, and "" is a quote. */
+    static List<String> csvFields(String line, char sep) {
+        List<String> out = new ArrayList<>();
+        StringBuilder b = new StringBuilder();
+        boolean quoted = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (quoted) {
+                if (c == '"' && i + 1 < line.length() && line.charAt(i + 1) == '"') { b.append('"'); i++; }
+                else if (c == '"') quoted = false;
+                else b.append(c);
+            } else if (c == '"') {
+                quoted = true;
+            } else if (c == sep) {
+                out.add(b.toString());
+                b.setLength(0);
+            } else {
+                b.append(c);
+            }
+        }
+        out.add(b.toString());
+        return out;
+    }
+
+    /** IB's form of a ticker: upper case, and a class share's dot or dash as a space (BRK.B -> BRK B). */
+    static String ibSymbol(String t) {
+        return t.trim().toUpperCase(Locale.ROOT).replace('.', ' ').replace('-', ' ').replaceAll("\\s+", " ");
     }
 
     /** Nasdaq writes class shares with a dot; IB with a space. */
@@ -1115,18 +1256,20 @@ public class PutScreener {
         System.out.println("PUT SCREEN v" + VERSION + "  " + now.format(DateTimeFormatter.ofPattern("EEE yyyy-MM-dd HH:mm", Locale.US)) + " ET"
                 + "   edge (at the mid) and tail per contract ($); edge% = edge / cash secured;"
                 + " score = edge/tail; prem% = mid / strike");
-        System.out.printf("%-6s %-8s %8s %8s %6s %13s %6s %5s %8s %7s %8s %7s %6s %6s %5s %5s  %-8s %s%n",
-                "SYM", "EXPIRY", "SPOT", "STRIKE", "DELTA", "BID x ASK", "IV", "IV/RV",
+        System.out.printf("%-6s %3s %-8s %8s %8s %6s %13s %6s %5s %8s %7s %8s %7s %6s %6s %5s %5s  %-8s %s%n",
+                "SYM", "CO", "EXPIRY", "SPOT", "STRIKE", "DELTA", "BID x ASK", "IV", "IV/RV",
                 "EDGE", "EDGE%", "TAIL", "SCORE", "SPRD%", "PREM%", "DIV$", "CTRS", "VERDICT", "AT FILL");
         for (Row r : rows) {
             Row f = atFill.get(r.sym + "|" + r.strike);
-            System.out.printf("%-6s %-8s %8.2f %8.2f %6.2f %6.2f x %-6.2f %5.0f%% %5.2f %8.0f %7.3f %8.0f %7.3f %6.1f %6.2f %5.0f %5d  %-8s %s%n",
-                    r.sym + (r.dividend > 0 ? "*" : ""), r.expiry, r.spot, r.strike, r.delta, r.bid, r.ask, r.iv * 100, r.ivRv,
+            Double co = companyScore(r.sym);
+            System.out.printf("%-6s %3s %-8s %8.2f %8.2f %6.2f %6.2f x %-6.2f %5.0f%% %5.2f %8.0f %7.3f %8.0f %7.3f %6.1f %6.2f %5.0f %5d  %-8s %s%n",
+                    r.sym + (r.dividend > 0 ? "*" : ""), co != null ? String.format(Locale.ROOT, "%.0f", co) : "-", r.expiry,
+                    r.spot, r.strike, r.delta, r.bid, r.ask, r.iv * 100, r.ivRv,
                     r.edge * 100, r.edge / r.strike * 100, r.tail * 100, r.score, r.spreadPct, r.premPct,
                     r.divPart * 100, contracts(capital, r.strike), r.verdict, f != null ? f.verdict : "-");
         }
         System.out.printf("CTRS = cash-secured contracts for $%,.0f.  * = goes ex-dividend before expiry;"
-                + " DIV$ = the dividend's share of the premium per contract.%n", capital);
+                + " DIV$ = the dividend's share of the premium per contract.  CO = company score.%n", capital);
         System.out.printf("AT FILL = the verdict if filled at bid + %.0f%% of the spread (fill_at %.2f), wide spreads allowed.%n",
                 fillAt * 100, fillAt);
         for (Row r : rows) if (r.dividend > 0) System.out.println("  " + r.sym + " " + r.divNote);
@@ -1147,11 +1290,12 @@ public class PutScreener {
         try (PrintWriter p = new PrintWriter(Files.newBufferedWriter(f))) {
             p.println("sym,expiry,spot,strike,delta,bid,ask,iv,iv_rv,edge,edge_at_bid,tail,score,spread_pct,prem_pct,"
                     + "dividend,div_in_premium,ex_div,contracts,capital,verdict,"
-                    + "fill_at,fill_price,fill_iv_rv,fill_edge,fill_verdict");
+                    + "fill_at,fill_price,fill_iv_rv,fill_edge,fill_verdict,company_score");
             for (Row r : rows) {
                 Row x = atFill.get(r.sym + "|" + r.strike);
+                Double co = companyScore(r.sym);
                 p.printf(Locale.ROOT, "%s,%s,%.2f,%.2f,%.3f,%.2f,%.2f,%.4f,%.3f,%.2f,%.2f,%.2f,%.4f,%.2f,%.3f,%.4f,%.2f,%s,%d,%.0f,%s,"
-                                + "%.2f,%s,%s,%s,%s%n",
+                                + "%.2f,%s,%s,%s,%s,%s%n",
                         r.sym, r.expiry, r.spot, r.strike, r.delta, r.bid, r.ask, r.iv, r.ivRv,
                         r.edge * 100, r.edgeAtBid * 100, r.tail * 100, r.score, r.spreadPct, r.premPct,
                         r.dividend, r.divPart * 100, r.divNote, contracts(capital, r.strike), capital, r.verdict,
@@ -1159,7 +1303,8 @@ public class PutScreener {
                         x != null ? String.format(Locale.ROOT, "%.3f", x.price) : "",
                         x != null ? String.format(Locale.ROOT, "%.3f", x.ivRv) : "",
                         x != null ? String.format(Locale.ROOT, "%.2f", x.edge * 100) : "",
-                        x != null ? x.verdict : "");
+                        x != null ? x.verdict : "",
+                        co != null ? String.format(Locale.ROOT, "%.0f", co) : "");
             }
         }
         System.out.println("Saved " + f.toAbsolutePath());
@@ -1183,7 +1328,7 @@ public class PutScreener {
         // BRK.B and BRK-B are turned into
         Set<String> uniq = new LinkedHashSet<>();
         for (String t : p.getProperty("tickers", "").split(",")) {
-            String sym = t.trim().toUpperCase(Locale.ROOT).replace('.', ' ').replace('-', ' ').replaceAll("\\s+", " ");
+            String sym = ibSymbol(t);
             if (!sym.isEmpty()) uniq.add(sym);
         }
         tickers = new ArrayList<>(uniq);

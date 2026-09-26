@@ -14,6 +14,8 @@ if not exist dist\lib mkdir dist\lib
 copy /y lib\*.jar dist\lib\ >nul
 copy /y PutScreener.bat dist\ >nul
 copy /y putscreener.sh dist\ >nul
+copy /y CompanyScore.bat dist\ >nul
+copy /y companyscore.sh dist\ >nul
 echo Built dist\PutScreener.jar. Run dist\PutScreener.bat
 exit /b 0
 :missing

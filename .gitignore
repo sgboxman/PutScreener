@@ -7,6 +7,8 @@
 /putscreener.properties
 /results/
 /NOTES.md
+/company_scores.csv
+/sec_cache/
 
 # IB's jars: IB's license does not allow redistributing them (see lib/README.txt)
 /lib/*.jar

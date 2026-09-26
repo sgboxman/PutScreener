@@ -9,7 +9,10 @@
     <target name="-post-jar">
         <copy todir="${dist.dir}" file="PutScreener.bat"/>
         <copy todir="${dist.dir}" file="putscreener.sh"/>
+        <copy todir="${dist.dir}" file="CompanyScore.bat"/>
+        <copy todir="${dist.dir}" file="companyscore.sh"/>
         <chmod file="${dist.dir}/putscreener.sh" perm="755"/>
+        <chmod file="${dist.dir}/companyscore.sh" perm="755"/>
 
         <property name="fat.jar.name" value="PutScreener-standalone.jar"/>
         <jar destfile="${dist.dir}/${fat.jar.name}" filesetmanifest="skip">
