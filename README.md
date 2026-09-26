@@ -10,7 +10,8 @@ whether its premium looks rich compared with how the stock has actually been mov
 
 - Java 17 or newer
 - An IB account with TWS or IB Gateway running and logged in on the same computer
-- Market data: US stocks (needed for price history), and US options (OPRA) or the *Delayed data* box
+- Market data: US stocks (needed for price history) and US options (OPRA). Without OPRA the scan switches to IB's
+  free delayed option quotes by itself
 - IB's free TWS API download, for two jars (below)
 
 ## Set up
@@ -40,7 +41,8 @@ under the table.
 | `gap_multiple` | Size of the gap the Tail column assumes, in implied moves | 3 |
 | `dividends` | Ex-dividend weeks: `include` (priced on spot − dividend) or `skip` | include |
 | `earnings_calendar` | `nasdaq` skips names reporting before expiry; `off` doesn't check | off |
-| `mid_fill`, `delayed_data` | Start with these boxes ticked | false |
+| `mid_fill` | Start with *Fill at mid* ticked | false |
+| `delayed_data` | `true`: always use IB's delayed data (the scan switches to it by itself without OPRA) | false |
 | `fill_at` | Price *Fill at mid* assumes: 0 bid, 0.5 mid, 1 ask | 0.5 |
 | `capital` | Cash per position, for the Contracts column | 25000 |
 | `sec_contact` | Your name and email, for company scores (below); sent only to the SEC | (empty) |
@@ -72,7 +74,8 @@ its data leaves out; the `data_through` column and the notes show both.
 ## The window
 
 - **Fill at mid**: price every put at the mid (`fill_at`) and let wide spreads through as MERIT@MID. Switches at once.
-- **Delayed data**: IB's free delayed quotes, for accounts without OPRA.
+- **Live data / Delayed data**: which quotes IB is sending. Without an options (OPRA) subscription the scan switches
+  to IB's free delayed data (about 15 minutes old) by itself and says so under the table.
 - Outside 09:30–16:00 ET (13:00 on half days) live option quotes are empty, so the scan uses the last close's
   quotes; the label at the top says which.
 - **Re-scan**: re-read the settings and scan again. **Capital**: recalculates Contracts at once (a changed

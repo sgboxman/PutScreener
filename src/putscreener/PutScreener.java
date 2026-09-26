@@ -225,8 +225,10 @@ public class PutScreener {
             # Earnings weeks: nasdaq (skip names reporting before expiry, from Nasdaq's public calendar; see README) or off.
             earnings_calendar = off
 
-            # Start with these boxes ticked.
+            # Start with Fill at mid ticked.
             mid_fill = false
+            # true: always use IB's free delayed data (about 15 minutes old). Leave it false: the scan switches to
+            # delayed data by itself if the account has no live options (OPRA) data, and the window says so.
             delayed_data = false
             # The price "Fill at mid" assumes: 0 = bid, 0.5 = mid, 1 = ask.
             fill_at = 0.5
@@ -306,7 +308,9 @@ public class PutScreener {
         // Outside the session live option quotes are empty, so the scan uses the last close's
         // (IB's frozen quotes); during it IB sends live quotes. Nothing for the user to choose.
         boolean afterHours = !inSession(now);
-        boolean delayed = win != null ? win.delayed() : delayedData;
+        // Live data, unless the settings ask for delayed; the scan switches to delayed by itself if IB
+        // refuses live options data (switchToDelayed)
+        scanDelayed = delayedData;
         stockDataSeen = false;
         optionDataSeen = false;
         ZonedDateTime quoteTime = afterHours ? lastClose(now) : now;
@@ -317,6 +321,7 @@ public class PutScreener {
             win.scanStarting(tickers.size(), fillAt);
             win.setMode(afterHours ? "After hours: using the " + quoteTime.format(DateTimeFormatter.ofPattern("EEE", Locale.US)) + " close"
                                    : "Live quotes");
+            win.setDelayed(scanDelayed);
         }
         if (createdConfig != null) {
             warn("starter", "No settings file was found, so a starter one was written: " + createdConfig
@@ -333,12 +338,10 @@ public class PutScreener {
         LocalTime t = now.toLocalTime();
         if (tradingDay(today) && !t.isBefore(LocalTime.of(9, 0)) && t.isBefore(OPEN))
             warn("preopen", "IB sends no option quotes between 09:00 and 09:30 ET. Re-scan after the open.");
-        if (delayed && !afterHours && t.isBefore(OPEN.plusMinutes(15)))
-            warn("delayed-open", "Delayed quotes are 15 minutes old: until 09:45 ET they are from before the open,"
-                    + " when IB has no option quotes.");
+        if (scanDelayed) delayedWarnings(afterHours);
         if (today.getYear() > LAST_HOLIDAY_YEAR)
             warn("holidays", "The NYSE holiday list in PutScreener.java ends in " + LAST_HOLIDAY_YEAR + ": add this year's.");
-        mktDataType = delayed ? (afterHours ? 4 : 3) : (afterHours ? 2 : 1);
+        mktDataType = scanDelayed ? (afterHours ? 4 : 3) : (afterHours ? 2 : 1);
 
         if (win != null) win.status("Connecting to TWS on port " + port + "...");
         connect();
@@ -354,9 +357,6 @@ public class PutScreener {
                 warn("earnings-off", "Earnings dates are not checked (earnings_calendar = off). Check report dates"
                         + " yourself before selling.");
             }
-            if (delayed)
-                warn("div-delayed", "Delayed data: IB sends no dividend data, so ex-dividend weeks are not recognised."
-                        + " Check ex-dates yourself.");
 
             List<Row> rows = new ArrayList<>();
             List<Row> fillRows = new ArrayList<>();       // the same puts priced at the assumed fill
@@ -375,7 +375,7 @@ public class PutScreener {
                 try {
                     String report = earnings == null ? null : earningsFor(earnings, sym);
                     if (report != null) skipped.add(sym + "  earnings " + report);
-                    else screen(sym, now, quoteTime, afterHours, delayed, friday, rows, fillRows, skipped);
+                    else screen(sym, now, quoteTime, afterHours, friday, rows, fillRows, skipped);
                 } catch (ScanStop e) {
                     throw e;
                 } catch (Exception e) {
@@ -414,7 +414,7 @@ public class PutScreener {
                 String warnings = warned.isEmpty() ? "" : warned.size() + (warned.size() == 1 ? " WARNING" : " WARNINGS") + " below.  ";
                 win.status(String.format("%s%s in %d s: %d puts, %d MERIT, %d more MERIT@MID.  Quotes as of %s%s.  Saved %s",
                         warnings, partial ? "PARTIAL" : "Done", (System.currentTimeMillis() - t0) / 1000, rows.size(), merit, atMid,
-                        asOf, delayed ? " (delayed)" : "", csv.getFileName()));
+                        asOf, scanDelayed ? " (delayed)" : "", csv.getFileName()));
             }
         } finally {
             disconnect();
@@ -558,7 +558,7 @@ public class PutScreener {
      * quoteTime is when the option quotes are from: now when live, the last 16:00 close after
      * hours. Time to expiry, days left and the ex-dividend window all run from it.
      */
-    static void screen(String sym, ZonedDateTime now, ZonedDateTime quoteTime, boolean afterHours, boolean delayed,
+    static void screen(String sym, ZonedDateTime now, ZonedDateTime quoteTime, boolean afterHours,
                        LocalDate friday, List<Row> rows, List<Row> fillRows, List<String> skipped) throws Exception {
         // Stock contract
         Contract stk = new Contract();
@@ -624,7 +624,7 @@ public class PutScreener {
         // touch it. Live, an ex-date today is already in the price; after hours spot and puts
         // are both the last close, so a later ex-date (today, before the open) still counts.
         // IB sends no dividend tick on delayed data (warned once per scan).
-        Div div = delayed ? null : nextDividend(s);
+        Div div = scanDelayed ? null : nextDividend(s);
         LocalDate quoteDay = quoteTime.toLocalDate();
         boolean exThisWeek = div != null && div.exDate.isAfter(quoteDay) && !div.exDate.isAfter(exp);
         if (exThisWeek && !includeDividends) { skipped.add(sym + "  ex-dividend " + div); return; }
@@ -653,14 +653,22 @@ public class PutScreener {
 
         List<Quote> qs = snapshots(puts, false);
 
+        // No live options data on this account (no OPRA): the rest of the scan switches to IB's free
+        // delayed data by itself, rather than stopping
+        Quote refused = refusedLive(qs);
+        if (refused != null) {
+            switchToDelayed(afterHours, refused.err);
+            qs = snapshots(puts, false);
+        }
+
         // Delayed data asked for, but IB answers with the account's live options feed: it does
         // that when the account has an OPRA subscription. After hours that feed is empty, and IB
         // does not fall back to the close for delayed requests, so ask for the frozen close.
-        if (delayed && qs.stream().anyMatch(q -> q.dataType == 1 && (q.gotBid || q.bid > 0)))
-            warn("live-sub", "Delayed data is ticked, but this account has live options data, so IB sends that"
-                    + " instead. You can untick Delayed data.");
+        if (scanDelayed && qs.stream().anyMatch(q -> q.dataType == 1 && (q.gotBid || q.bid > 0)))
+            warn("live-sub", "delayed_data = true in the settings, but this account has live options data, so IB"
+                    + " sends that instead. You can set delayed_data = false.");
         // Only when IB actually announced its live feed: an account without OPRA never gets frozen quotes
-        if (delayed && afterHours && mktDataType == 4 && qs.stream().noneMatch(q -> q.bid > 0 && q.ask > 0)
+        if (scanDelayed && afterHours && mktDataType == 4 && qs.stream().noneMatch(q -> q.bid > 0 && q.ask > 0)
                 && qs.stream().anyMatch(q -> q.saidLive) && qs.stream().allMatch(q -> q.dataType == 1)) {
             mktDataType = 2;
             client.reqMarketDataType(2);
@@ -718,26 +726,72 @@ public class PutScreener {
     /** This scan has already had stock (history) or option data from IB: a data error is then one ticker's. */
     static volatile boolean stockDataSeen, optionDataSeen;
 
+    /** This scan is on IB's delayed data: asked for in the settings, or switched to by switchToDelayed. */
+    static volatile boolean scanDelayed;
+
+    /** IB refused the data for want of a market data subscription. */
+    static boolean noSubscription(int code, String msg) {
+        String m = msg == null ? "" : msg.toLowerCase(Locale.ROOT);
+        return code == 354 || code == 10089 || code == 10168 || code == 10186
+                || (code == 162 && (m.contains("permission") || m.contains("subscri")));
+    }
+
+    /**
+     * The quote that shows IB refused live options data for want of a subscription, when that calls
+     * for the switch to delayed data: the scan is still live, no option quote has arrived in this
+     * scan (after one has, a refusal is this one name's), and none of these was quoted. Else null.
+     */
+    static Quote refusedLive(List<Quote> qs) {
+        if (scanDelayed || optionDataSeen || qs.stream().anyMatch(q -> q.bid > 0 && q.ask > 0)) return null;
+        return qs.stream().filter(q -> noSubscription(q.err, q.errMsg)).findFirst().orElse(null);
+    }
+
+    /**
+     * The account has no live options data: the rest of the scan uses IB's free delayed data (about
+     * 15 minutes old; after hours, the close), and the window's label says so. Anyone trading US
+     * options normally has OPRA, so this is the rare case; delayed_data = true forces it from the start.
+     */
+    static void switchToDelayed(boolean afterHours, int code) throws InterruptedException {
+        scanDelayed = true;
+        mktDataType = afterHours ? 4 : 3;
+        pace();
+        client.reqMarketDataType(mktDataType);
+        warn("auto-delayed", "IB " + code + ": this account has no live options data (OPRA), so the scan switched to"
+                + " IB's free delayed data (about 15 minutes old).");
+        delayedWarnings(afterHours);
+        ScreenerWindow win = window;
+        if (win != null) win.setDelayed(true);
+    }
+
+    /** What delayed data can't do, said once per scan. */
+    static void delayedWarnings(boolean afterHours) {
+        if (!afterHours && ZonedDateTime.now(NY).toLocalTime().isBefore(OPEN.plusMinutes(15)))
+            warn("delayed-open", "Delayed quotes are 15 minutes old: until 09:45 ET they are from before the open,"
+                    + " when IB has no option quotes.");
+        warn("div-delayed", "Delayed data: IB sends no dividend data, so ex-dividend weeks are not recognised."
+                + " Check ex-dates yourself.");
+    }
+
     /**
      * IB's reason for getting no data. Before any data has arrived it is one every name will hit, so
      * stop the scan with it rather than list the same empty result for every ticker; once data has
      * arrived it is this ticker's (a listing the account has no permission for), so skip just it.
      * Codes that concern one contract only (200; 162 without a permissions message) are left alone.
+     * No live options data is not one of these: the scan has switched to delayed data before it
+     * gets here, so an options refusal now means none at all, live or delayed.
      */
     static void checkDataError(String sym, int code, String msg, boolean options) throws ScanStop {
-        String m = msg == null ? "" : msg.toLowerCase(Locale.ROOT);
-        boolean noSubscription = code == 354 || code == 10089 || code == 10168 || code == 10186
-                || (code == 162 && (m.contains("permission") || m.contains("subscri")));
+        boolean noSubscription = noSubscription(code, msg);
         if (!noSubscription && code != 10197 && code != 101) return;
         if (options ? optionDataSeen : stockDataSeen)
             throw new IllegalStateException("no " + (options ? "option" : "stock") + " data for this ticker (IB " + code + ")");
         String at = "At " + sym + ": ";
         if (noSubscription && options)
-            throw new ScanStop(at + "no US options data (IB " + code + "). Subscribe to OPRA in IB's Client Portal, or"
-                    + " tick Delayed data. Paper account: turn on market data sharing with it (can take a day).");
+            throw new ScanStop(at + "no US options data, live or delayed (IB " + code + "). Check the account's market data"
+                    + " subscriptions (OPRA) in IB's Client Portal. Paper account: turn on market data sharing with it (can take a day).");
         if (noSubscription)
             throw new ScanStop(at + "no US stock data (IB " + code + "). IB needs a US stock subscription for price"
-                    + " history, even with Delayed data. Paper account: turn on market data sharing with it (can take a day).");
+                    + " history, even with delayed data. Paper account: turn on market data sharing with it (can take a day).");
         if (code == 10197)
             throw new ScanStop("IB 10197: another session is using your market data (the IBKR mobile or web app, or a"
                     + " second TWS). Log out of it, then Re-scan.");

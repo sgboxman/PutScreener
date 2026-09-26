@@ -10,7 +10,8 @@ import java.util.Locale;
 /**
  * The screen as a table that fills in name by name. Rows are coloured by verdict; the capital
  * box at the top recalculates the Contracts column; a label says whether the scan used live
- * quotes or, after hours, the last close's; Re-scan runs the screen again; the mid-fill box
+ * quotes or, after hours, the last close's, and another whether IB is sending live or delayed
+ * data (both set by the scan, not the user); Re-scan runs the screen again; the mid-fill box
  * switches at once between the two scorings every scan makes (at the mid with the spread
  * filter, or at the assumed fill without it). All public methods are safe to call from the
  * screening thread.
@@ -37,16 +38,15 @@ class ScreenerWindow {
     private final List<PutScreener.Row> rows = new ArrayList<>();       // at the mid, spread filter on
     private final List<PutScreener.Row> fillRows = new ArrayList<>();   // at the assumed fill, no spread filter
     private volatile double capital;
-    private volatile boolean delayed;
+    private final boolean delayedAtStart;
     private boolean midFill;          // EDT only
     private double fillAt = 0.5;      // EDT only
     private int warnEnd;              // EDT only: warnings sit above this offset in the notes box
     private volatile Runnable onRescan = () -> { };
     private JFrame frame;
-    private JLabel status, mode;
+    private JLabel status, mode, data;
     private JProgressBar progress;
     private JTextArea notes;
-    private JCheckBox delayedBox;
     private JCheckBox midBox;
     private JTextField cap;
     private JButton rescan;
@@ -55,7 +55,7 @@ class ScreenerWindow {
     ScreenerWindow(double capital, int total, boolean midFill, boolean delayed) throws Exception {
         this.capital = capital;
         this.midFill = midFill;
-        this.delayed = delayed;
+        this.delayedAtStart = delayed;
         SwingUtilities.invokeAndWait(() -> build(total));
     }
 
@@ -64,10 +64,16 @@ class ScreenerWindow {
 
     double capital() { return capital; }
 
-    boolean delayed() { return delayed; }
-
     /** Which quotes the scan uses: live, or after hours the last close's. Set by the scan, not the user. */
     void setMode(String s) { SwingUtilities.invokeLater(() -> mode.setText(s)); }
+
+    /** Live or delayed data: set by the scan (and by the settings' delayed_data), not the user. */
+    void setDelayed(boolean delayed) { SwingUtilities.invokeLater(() -> showData(delayed)); }
+
+    private void showData(boolean delayed) {
+        data.setText(delayed ? "Delayed data" : "Live data");
+        data.setForeground(delayed ? new Color(190, 90, 0) : UIManager.getColor("Label.foreground"));
+    }
 
     /** The settings file's capital, when it changed since the last scan. */
     void setCapital(double c) {
@@ -100,7 +106,6 @@ class ScreenerWindow {
 
     private void setControls(boolean on) {
         rescan.setEnabled(on);
-        delayedBox.setEnabled(on);
     }
 
     /** A warning: kept at the top of the message box, above the per-name notes, in the order raised. */
@@ -159,11 +164,12 @@ class ScreenerWindow {
         mode.setToolTipText("<html>During market hours the scan uses live quotes. Outside them live option quotes are"
                 + " empty, so it uses the last close's quotes, with time and the stock price taken at that close.<br>"
                 + "Between 09:00 and 09:30 ET IB has no option quotes at all.</html>");
-        delayedBox = new JCheckBox("Delayed data", delayed);
-        delayedBox.setToolTipText("<html>Ticked: IB's free delayed data (~15 minutes old; after hours, the close), for"
-                + " accounts without an options (OPRA) subscription.<br>Price history still needs a US stock"
-                + " subscription, and IB sends no dividend data on delayed quotes.</html>");
-        delayedBox.addActionListener(e -> delayed = delayedBox.isSelected());
+        data = new JLabel();
+        showData(delayedAtStart);
+        data.setToolTipText("<html>Live data needs an options (OPRA) subscription. Without one the scan switches by itself to"
+                + " IB's free delayed data<br>(about 15 minutes old; after hours, the close) and says so in the warnings."
+                + " IB sends no dividend data with delayed quotes.<br>delayed_data = true in putscreener.properties uses"
+                + " delayed data always.</html>");
         rescan = new JButton("Re-scan");
         rescan.setToolTipText("Re-read putscreener.properties and run the screen again");
         rescan.addActionListener(e -> {
@@ -182,8 +188,9 @@ class ScreenerWindow {
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         right.add(mode);
         right.add(Box.createHorizontalStrut(8));
+        right.add(data);
+        right.add(Box.createHorizontalStrut(8));
         right.add(midBox);
-        right.add(delayedBox);
         right.add(rescan);
         right.add(Box.createHorizontalStrut(16));
         right.add(new JLabel("Capital $"));
