@@ -236,6 +236,7 @@ public class PutScreener {
 
             # Company scores (CompanyScore.bat, optional; see README). The SEC asks every program that
             # downloads its data for a contact: your name and email. It is sent only to the SEC.
+            # For example:  sec_contact = Jane Doe jane@example.com
             sec_contact =
             """;
 

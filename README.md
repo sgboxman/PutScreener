@@ -47,6 +47,9 @@ under the table.
 
 ## Company scores (optional)
 
+**Upgrading from 1.3 or earlier:** your `putscreener.properties` keeps working as it is. For company scores, add one
+line to it with your name and email, for example `sec_contact = Jane Doe jane@example.com`.
+
 `CompanyScore.bat` (or `sh companyscore.sh`) scores every company in `tickers` from 0 to 100, from its own 10-K and
 10-Q filings (the SEC's free XBRL data, no key) and IB's price. TWS must be running. It takes about a minute and
 writes `company_scores.csv` next to the settings, best first, plus a dated copy in `results/`.
