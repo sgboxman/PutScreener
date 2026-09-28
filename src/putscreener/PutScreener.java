@@ -43,7 +43,7 @@ import java.util.regex.*;
 public class PutScreener {
 
     /** Shown in the window title, so screenshots can be told apart. */
-    static final String VERSION = "1.4.1";
+    static final String VERSION = "1.4.2";
     static final String COPYRIGHT = "© 2026 - Andrew Boxerman and Claude Opus 5.5";
 
     static final ZoneId NY = ZoneId.of("America/New_York");
