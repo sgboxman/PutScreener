@@ -586,6 +586,11 @@ public class PutScreener {
         if (bars.size() < rvDays + 1) { skipped.add(sym + "  only " + bars.size() + " daily bars"); return; }
         double dailySd = dailyStdev(bars, rvDays);
 
+        // The next dividend, asked for BEFORE the price snapshot: right after a snapshot of the same
+        // stock IB often never sends the dividend tick (measured 09-28: AMGN, HD, IBM silent every
+        // time in that order, all answered when asked first). IB sends none on delayed data.
+        Div div = scanDelayed ? null : nextDividend(s);
+
         // Price. After hours the option quotes are the close's, but the stock keeps trading
         // pre- and post-market, so its quote would not match them: take the last close instead.
         double spot;
@@ -629,8 +634,6 @@ public class PutScreener {
         // the put is really written on spot - dividend. An ex-date after this expiry does not
         // touch it. Live, an ex-date today is already in the price; after hours spot and puts
         // are both the last close, so a later ex-date (today, before the open) still counts.
-        // IB sends no dividend tick on delayed data (warned once per scan).
-        Div div = scanDelayed ? null : nextDividend(s);
         LocalDate quoteDay = quoteTime.toLocalDate();
         boolean exThisWeek = div != null && div.exDate.isAfter(quoteDay) && !div.exDate.isAfter(exp);
         if (exThisWeek && !includeDividends) { skipped.add(sym + "  ex-dividend " + div); return; }
