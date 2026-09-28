@@ -131,8 +131,9 @@ public class PutScreener {
         }
         ScreenerWindow win;
         try {
-            loadConfig(findConfig(given).toString());
-            win = new ScreenerWindow(capital, tickers.size(), midFill, delayedData);
+            Path cfg = findConfig(given);
+            loadConfig(cfg.toString());
+            win = new ScreenerWindow(capital, tickers.size(), midFill, delayedData, cfg.getParent().resolve(PICKS));
         } catch (Exception e) {
             e.printStackTrace();
             javax.swing.JOptionPane.showMessageDialog(null, e.getMessage() != null ? e.getMessage() : e.toString(),
@@ -194,6 +195,8 @@ public class PutScreener {
     // ------------------------------------------------------------------ config
 
     static final String CONFIG = "putscreener.properties";
+    /** The window's ticked puts, one "SYM|expiry|strike" a line, next to the settings. */
+    static final String PICKS = "picks.txt";
 
     /** Written next to the jar on the first run, when no config is found. */
     static final String STARTER_CONFIG = """
@@ -1013,11 +1016,6 @@ public class PutScreener {
 
     // ------------------------------------------------------------------ IB plumbing
 
-    /**
-     * The stock's next ex-date and amount from IB: generic tick 456 answers with tick 59,
-     * "past12,next12,nextDate,nextAmount", within ~50 ms. Generic ticks need a streaming request,
-     * cancelled as soon as the tick is in. Null when IB sends no dividend.
-     */
     /** This scan's names for which IB's dividend request went unanswered, in scan order. */
     static final Set<String> noDividendData = Collections.synchronizedSet(new LinkedHashSet<>());
 
@@ -1035,6 +1033,11 @@ public class PutScreener {
                 + " or check their ex-dates yourself.");
     }
 
+    /**
+     * The stock's next ex-date and amount from IB: generic tick 456 answers with tick 59,
+     * "past12,next12,nextDate,nextAmount", within ~50 ms. Generic ticks need a streaming request,
+     * cancelled as soon as the tick is in. Null when IB sends no dividend.
+     */
     static Div nextDividend(Contract s) throws InterruptedException {
         int id = ids.incrementAndGet();
         w.open(id);

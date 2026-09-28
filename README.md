@@ -80,9 +80,13 @@ its data leaves out; the `data_through` column and the notes show both.
   quotes; the label at the top says which.
 - **Re-scan**: re-read the settings and scan again. **Capital**: recalculates Contracts at once (a changed
   `capital` in the settings file takes over at the next Re-scan).
+- **Pick**: tick the puts you like, then click the Pick header to bring them to the top and compare them. A tick
+  belongs to the option (symbol, expiry, strike): it stays through sorting, Re-scan and closing the window
+  (`picks.txt` next to the settings), and goes when the option expires.
 
 | Column | Meaning |
 |---|---|
+| Pick | Your tick (see above) |
 | Co. Score | The company score from `company_scores.csv` (blank without one) |
 | IV % | Implied volatility, annualised, from the mid |
 | IV/RV | Move the option prices in ÷ move the stock has actually made, both to expiry |

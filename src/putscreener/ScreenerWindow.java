@@ -3,10 +3,18 @@ package putscreener;
 import javax.swing.*;
 import javax.swing.table.*;
 import java.awt.*;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * The screen as a table that fills in name by name. Rows are coloured by verdict; the capital
@@ -14,8 +22,10 @@ import java.util.Locale;
  * quotes or, after hours, the last close's, and another whether IB is sending live or delayed
  * data (both set by the scan, not the user); Re-scan runs the screen again; the mid-fill box
  * switches at once between the two scorings every scan makes (at the mid with the spread
- * filter, or at the assumed fill without it). All public methods are safe to call from the
- * screening thread.
+ * filter, or at the assumed fill without it). The Pick column marks the puts the user likes:
+ * a tick belongs to the option (symbol, expiry, strike), so it survives sorting, the mid-fill
+ * box, a Re-scan and a restart (picks.txt next to the settings). All public methods are safe to
+ * call from the screening thread.
  */
 class ScreenerWindow {
 
@@ -29,12 +39,12 @@ class ScreenerWindow {
     // Andrew's scaling (2026-09-26): the raw values were too small to read at a glance. The results CSV keeps them raw.
     // Co. Score = the company score from company_scores.csv, blank without one.
     static final double EDGE_FACTOR = 66, SCORE_FACTOR = 800;
-    private static final String[] COLS = {"Symbol", "Co. Score", "Expiry", "Spot", "Strike", "Delta", "Bid", "Ask",
+    private static final String[] COLS = {"Pick", "Symbol", "Co. Score", "Expiry", "Spot", "Strike", "Delta", "Bid", "Ask",
             "IV %", "IV/RV", "Edge@Mid $", "Edge Φ", "Tail $", "Score", "Spread %", "Prem %", "Div",
             "Contracts", "Verdict"};
-    private static final String[] FMT = {null, "%.0f", null, "%.2f", "%.2f", "%.2f", "%.2f", "%.2f",
+    private static final String[] FMT = {null, null, "%.0f", null, "%.2f", "%.2f", "%.2f", "%.2f", "%.2f",
             "%.0f", "%.2f", "%.0f", "%.1f", "%.0f", "%.1f", "%.1f", "%.2f", "%.2f", null, null};
-    private static final int SYM = 0, CO = 1, EXPIRY = 2, DIV = 16, CONTRACTS = 17, VERDICT = 18;
+    private static final int PICK = 0, SYM = 1, CO = 2, EXPIRY = 3, DIV = 17, CONTRACTS = 18, VERDICT = 19;
 
     private final List<PutScreener.Row> rows = new ArrayList<>();       // at the mid, spread filter on
     private final List<PutScreener.Row> fillRows = new ArrayList<>();   // at the assumed fill, no spread filter
@@ -52,12 +62,45 @@ class ScreenerWindow {
     private JTextField cap;
     private JButton rescan;
     private Model model;
+    private final Path picksFile;
+    private final Set<String> picks = new LinkedHashSet<>();          // EDT only once the window is up
 
-    ScreenerWindow(double capital, int total, boolean midFill, boolean delayed) throws Exception {
+    ScreenerWindow(double capital, int total, boolean midFill, boolean delayed, Path picksFile) throws Exception {
         this.capital = capital;
         this.midFill = midFill;
         this.delayedAtStart = delayed;
+        this.picksFile = picksFile;
+        loadPicks();
         SwingUtilities.invokeAndWait(() -> build(total));
+    }
+
+    /** A put's identity for its tick: the same option in any scan, sorted anyhow, at the mid or at the fill. */
+    static String pickKey(PutScreener.Row r) {
+        return r.sym() + "|" + r.expiry() + "|" + String.format(Locale.ROOT, "%.2f", r.strike());
+    }
+
+    /** The saved ticks, less any whose option has expired. */
+    private void loadPicks() {
+        if (picksFile == null || !Files.isRegularFile(picksFile)) return;
+        String today = LocalDate.now(PutScreener.NY).format(DateTimeFormatter.BASIC_ISO_DATE);
+        try {
+            for (String line : Files.readAllLines(picksFile, StandardCharsets.UTF_8)) {
+                String[] f = line.trim().split("\\|");
+                if (f.length == 3 && f[1].length() == 8 && f[1].compareTo(today) >= 0) picks.add(line.trim());
+            }
+        } catch (IOException e) {
+            System.out.println("Couldn't read " + picksFile + ": " + e);
+        }
+    }
+
+    /** Written at every tick, so nothing is lost however the window is closed. */
+    private void savePicks() {
+        if (picksFile == null) return;
+        try {
+            Files.write(picksFile, picks, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            System.out.println("Couldn't save " + picksFile + ": " + e);
+        }
     }
 
     /** The rows on show: EDT only. */
@@ -217,11 +260,14 @@ class ScreenerWindow {
         // IV~RV at the top); equal verdicts keep the scan's order, best score first
         TableRowSorter<Model> sorter = new TableRowSorter<>(model);
         sorter.setComparator(VERDICT, Comparator.comparingInt((Object v) -> verdictRank(v.toString())));
+        sorter.setComparator(PICK, Comparator.comparing((Object v) -> !(Boolean) v));   // ticked first
         table.setRowSorter(sorter);
         table.setRowHeight(22);
         table.setFillsViewportHeight(true);
         Renderer r = new Renderer();
         for (int c = 0; c < COLS.length; c++) table.getColumnModel().getColumn(c).setCellRenderer(r);
+        table.getColumnModel().getColumn(PICK).setCellRenderer(new PickRenderer());
+        table.getColumnModel().getColumn(PICK).setMaxWidth(45);
 
         // Bottom: skipped names and warnings, and the legend
         notes = new JTextArea(5, 40);
@@ -236,7 +282,8 @@ class ScreenerWindow {
         legend.add(swatch(IV_RV, "IV~RV: implied not far enough above realized"));
         legend.add(swatch(NO_EDGE, "NO EDGE"));
         JPanel explain = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 2));
-        explain.add(new JLabel("(div) = ex-dividend before expiry; Div = dividend's share of the premium, per share."
+        explain.add(new JLabel("Pick: tick the puts you like; the Pick header brings them to the top."
+                + "   (div) = ex-dividend before expiry; Div = dividend's share of the premium, per share."
                 + "   Contracts = capital / (strike x 100); grey 0 = can't afford one."
                 + "   Co. Score = company score (0-100) from company_scores.csv."));
         JPanel legends = new JPanel(new GridLayout(2, 1));
@@ -271,6 +318,16 @@ class ScreenerWindow {
         };
     }
 
+    static Color verdictColor(String v) {
+        return switch (v) {
+            case "MERIT" -> MERIT;
+            case "MERIT@MID" -> MERIT_MID;
+            case "WIDE" -> WIDE;
+            case "IV~RV" -> IV_RV;
+            default -> NO_EDGE;
+        };
+    }
+
     private static JLabel swatch(Color c, String text) {
         JLabel l = new JLabel(" " + text + " ");
         l.setOpaque(true);
@@ -286,31 +343,43 @@ class ScreenerWindow {
 
         @Override public Class<?> getColumnClass(int c) {
             return switch (c) {
+                case PICK -> Boolean.class;
                 case SYM, EXPIRY, VERDICT -> String.class;
                 case CONTRACTS -> Integer.class;
                 default -> Double.class;
             };
         }
 
+        @Override public boolean isCellEditable(int i, int c) { return c == PICK; }
+
+        @Override public void setValueAt(Object v, int i, int c) {
+            if (c != PICK) return;
+            String key = pickKey(shown().get(i));
+            if (Boolean.TRUE.equals(v)) picks.add(key); else picks.remove(key);
+            savePicks();
+            fireTableCellUpdated(i, c);
+        }
+
         @Override public Object getValueAt(int i, int c) {
             PutScreener.Row r = shown().get(i);
             return switch (c) {
+                case PICK -> picks.contains(pickKey(r));
                 case SYM -> r.dividend() > 0 ? r.sym() + "  (div)" : r.sym();
                 case CO -> PutScreener.companyScore(r.sym());
                 case EXPIRY -> r.expiry();
-                case 3 -> r.spot();
-                case 4 -> r.strike();
-                case 5 -> r.delta();
-                case 6 -> r.bid();
-                case 7 -> r.ask();
-                case 8 -> r.iv() * 100;
-                case 9 -> r.ivRv();
-                case 10 -> r.edge() * 100;
-                case 11 -> r.edge() / r.strike() * 100 * EDGE_FACTOR;
-                case 12 -> r.tail() * 100;
-                case 13 -> r.score() * SCORE_FACTOR;
-                case 14 -> r.spreadPct();
-                case 15 -> r.premPct();
+                case 4 -> r.spot();
+                case 5 -> r.strike();
+                case 6 -> r.delta();
+                case 7 -> r.bid();
+                case 8 -> r.ask();
+                case 9 -> r.iv() * 100;
+                case 10 -> r.ivRv();
+                case 11 -> r.edge() * 100;
+                case 12 -> r.edge() / r.strike() * 100 * EDGE_FACTOR;
+                case 13 -> r.tail() * 100;
+                case 14 -> r.score() * SCORE_FACTOR;
+                case 15 -> r.spreadPct();
+                case 16 -> r.premPct();
                 case DIV -> r.divPart();                   // per share, like Bid and Ask (Andrew, 09-26)
                 case CONTRACTS -> PutScreener.contracts(capital, r.strike());
                 default -> r.verdict();
@@ -338,15 +407,26 @@ class ScreenerWindow {
             setToolTipText(tip);
             if (c == DIV && r.dividend() == 0) setText("");
             if (!sel) {
-                setBackground(switch (r.verdict()) {
-                    case "MERIT" -> MERIT;
-                    case "MERIT@MID" -> MERIT_MID;
-                    case "WIDE" -> WIDE;
-                    case "IV~RV" -> IV_RV;
-                    default -> NO_EDGE;
-                });
+                setBackground(verdictColor(r.verdict()));
                 setForeground(none ? new Color(150, 150, 150) : Color.BLACK);
             }
+            return this;
+        }
+    }
+
+    /** The Pick column: a checkbox on the row's verdict colour. */
+    private class PickRenderer extends JCheckBox implements TableCellRenderer {
+        PickRenderer() {
+            setHorizontalAlignment(CENTER);
+            setBorderPainted(false);
+            setOpaque(true);
+            setToolTipText("Tick the puts you like. Ticks are kept across Re-scan and when the window is closed.");
+        }
+
+        @Override public Component getTableCellRendererComponent(JTable t, Object v, boolean sel,
+                                                                 boolean focus, int row, int col) {
+            setSelected(Boolean.TRUE.equals(v));
+            setBackground(sel ? t.getSelectionBackground() : verdictColor(shown().get(t.convertRowIndexToModel(row)).verdict()));
             return this;
         }
     }

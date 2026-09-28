@@ -9,6 +9,7 @@
 /NOTES.md
 /company_scores.csv
 /sec_cache/
+/picks.txt
 
 # IB's jars: IB's license does not allow redistributing them (see lib/README.txt)
 /lib/*.jar
